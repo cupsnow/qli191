@@ -1,0 +1,34 @@
+diff --git a/classes/bazel.bbclass b/classes/bazel.bbclass
+index 59b78e1..c8a37d8 100644
+--- a/classes/bazel.bbclass
++++ b/classes/bazel.bbclass
+@@ -94,6 +94,21 @@ def bazel_get_flags(d):
+     return flags
+ 
+ bazel_do_configure () {
++    # Bazel matches this against the URL with the scheme removed, and drops the
++    # original URL when a rewrite hits. GitHub archive downloads return 429 from
++    # this host; codeload.github.com serves the same tarballs.
++    # Keep this path outside ${WORKDIR}: do_configure:append rewrites ${WORKDIR}
++    # inside bazelrc to the yocto_compiler external path.
++    cat > "${TS_DL_DIR}/bazel-downloader.cfg" <<'EOF'
++# Bazel drops the original URL when a rewrite matches, and a 429 does not
++# stop it from trying the next rewritten URL. Prefer the TensorFlow mirror;
++# codeload is only for archives the mirror does not have.
++rewrite github.com/([^/]+)/([^/]+)/archive/(.+)\.tar\.gz http://mirror.tensorflow.org/github.com/$1/$2/archive/$3.tar.gz
++rewrite github.com/([^/]+)/([^/]+)/archive/(.+)\.tar\.gz https://codeload.github.com/$1/$2/tar.gz/$3
++rewrite github.com/([^/]+)/([^/]+)/archive/(.+)\.zip http://mirror.tensorflow.org/github.com/$1/$2/archive/$3.zip
++rewrite github.com/([^/]+)/([^/]+)/archive/(.+)\.zip https://codeload.github.com/$1/$2/zip/$3
++EOF
++
+     cat > "${S}/bazelrc" <<-EOF
+ build --verbose_failures
+ build --spawn_strategy=standalone --genrule_strategy=standalone
+@@ -110,6 +125,7 @@ build --strip=never
+ 
+ build --python_path=python3
+ 
++common --experimental_downloader_config=${TS_DL_DIR}/bazel-downloader.cfg
+ fetch --distdir=${TS_DL_DIR}
+ build --distdir=${TS_DL_DIR}
+ 
