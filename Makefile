@@ -10,6 +10,9 @@ APP_ATTR_iq9075evk=iq9075evk
 
 APP_ATTR+=$(APP_ATTR_$(APP_PLATFORM))
 
+HOSTLSB_VER=$(strip $(shell lsb_release -rs))
+APPARMOR_RESTRICT_USERNS=$(strip $(shell cat /proc/sys/kernel/apparmor_restrict_unprivileged_userns))
+
 CLIARGS_VAL=$(if $(filter x"command line",x"$(strip $(origin $(1)))"),$($(1)))
 CLIARGS_VERBOSE=$(or $(call CLIARGS_VAL,V),$(call CLIARGS_VAL,VERBOSE))
 
@@ -24,15 +27,16 @@ ifneq ($(filter 1 2 3,$(CLIARGS_VERBOSE)),)
   CMAKE_MAKE_VERBOSE+=VERBOSE=1
 endif
 
-#------------------------------------
-#
-PYVENVDIR?=$(PROJDIR)/.venv
-PYVENV=. $(PYVENVDIR)/bin/activate
 GENDIR:=
 
+#------------------------------------
+#
 help: help_self
 help_self:
 	@echo "Help your self"
+
+PYVENVDIR?=$(PROJDIR)/.venv
+PYVENV=. $(PYVENVDIR)/bin/activate
 
 pyvenv $(PYVENVDIR):
 	python3 -m venv $(PYVENVDIR)
@@ -84,9 +88,13 @@ YOENV=MACHINE=$(qli_MACHINE) DISTRO=qcom-wayland BUILDDIR= . ./setup-environment
 # echo 0 | sudo tee /proc/sys/kernel/apparmor_restrict_unprivileged_userns
 qli_BITBAKE=$(YOENV) && chrt -i 0 bitbake
 
-ifneq ($(wildcard $(PROJDIR)/tool/bin/qdl),)
+ifeq (1,1)
+# build qdl from source
 QDL=$(PROJDIR)/tool/bin/qdl
+QDL_PREREQ=$(PROJDIR)/tool/bin/qdl
+$(PROJDIR)/tool/bin/qdl: qdl_install
 else
+# qdl download from qualcomm site
 # required for qdl, TODO: build these libraries
 # ln -sfn /usr/lib/x86_64-linux-gnu/libxml2.so.16 tool/lib/libxml2.so.2
 # ln -sfn /usr/lib/x86_64-linux-gnu/libzip.so.5 tool/lib/libzip.so.4
@@ -104,10 +112,10 @@ endif
 .layers: | .repo
 	repo sync
 
-qli_fetch:
+qli_fetch: USERNS_CHECK
 	$(qli_BITBAKE) --runall=fetch qcom-multimedia-image
 
-qli:
+qli: USERNS_CHECK | .layers
 	$(qli_BITBAKE) qcom-multimedia-image
 	ls -ld $(qli_BUILDDIR)/tmp-glibc/deploy/images/$(qli_MACHINE)/qcom-multimedia-image
 	ls -ld $(qli_BUILDDIR)/tmp-glibc/deploy/images/$(qli_MACHINE)/sail_nor
@@ -131,7 +139,7 @@ CMD_FLASHSAIL= \
         rawprogram0.xml \
         patch0.xml
 
-flash_sail:
+flash_sail: | $(QDL_PREREQ)
 	$(call CMD_FLASHSAIL)
 
 CMD_FLASHCDT= \
@@ -141,7 +149,7 @@ CMD_FLASHCDT= \
         rawprogram3.xml \
         patch3.xml
 
-flash_cdt:
+flash_cdt: | $(QDL_PREREQ)
 	$(call CMD_FLASHCDT)
 
 CMD_FLASH_QLI= \
@@ -158,13 +166,13 @@ CMD_FLASH_QLI= \
         rawprogram*.xml \
         patch*.xml
 
-flash_qli:
+flash_qli: | $(QDL_PREREQ)
 	$(call CMD_FLASH_QLI)
 
-onig:
+onig: USERNS_CHECK | .layers
 	$(qli_BITBAKE) onig-native
 
-qli_%:
+qli_%: USERNS_CHECK | .layers
 	$(qli_BITBAKE) $*
 
 dkqqdiff1:
@@ -174,14 +182,14 @@ dkqqdiff1:
 	      meta-oe/recipes-support/onig/onig_6.9.9.bb \
 	      meta-oe/recipes-devtools/jq/jq_1.7.1.bb \
 	      meta-oe/recipes-support/onig/onig/0003-fix-build-with-gcc-15-c23.patch \
-	      | tee $(CURDIR)/0001-meta-openembedded.patch \
+	      | tee $(PROJDIR)/0001-meta-openembedded.patch \
 	  ; git reset meta-oe/recipes-support/onig/onig/0003-fix-build-with-gcc-15-c23.patch
 
 dkqqdiff2:
 	cd layers/meta-tensorflow \
 	  && git diff -- \
 	      classes/bazel.bbclass \
-	      | tee $(CURDIR)/0002-meta-tensorflow.patch
+	      | tee $(PROJDIR)/0001-meta-tensorflow.patch
 
 dkqqdiff: dkqqdiff1 dkqqdiff2
 
@@ -192,6 +200,13 @@ print_%:
 
 $(sort $(GENDIR)):
 	@mkdir -p $(MKDIR_VERBOSE) $@
+
+USERNS_CHECK: FORCE
+	@if [ ! "$(APPARMOR_RESTRICT_USERNS)" = "0" ]; then \
+	  echo "Incase of the error \"User namespaces are not usable by BitBake\""; \
+	  echo "Please execute: echo 0 | sudo tee /proc/sys/kernel/apparmor_restrict_unprivileged_userns"; \
+	  false; \
+	fi
 
 help:
 

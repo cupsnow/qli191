@@ -2,15 +2,16 @@ Memo
 ----
 
 - [Qualcomm Linux Yocto documentation](https://docs.qualcomm.com/doc/80-70030-27/topic/yocto_landing_page.html)
-
+- [Build with GitHub for unregistered users](https://docs.qualcomm.com/doc/80-70030-254/topic/github_workflow_unregistered_users.html)
+- [Flash software images](https://docs.qualcomm.com/doc/80-70030-254/topic/flash_images.html)
+- [qcom-manifest](https://github.com/qualcomm-linux/qcom-manifest.git)/README.md - Another source to build Qualcomm Linux (QLI)
 
 Build
 ----
 
-- [Build with GitHub for unregistered users](https://docs.qualcomm.com/doc/80-70030-254/topic/github_workflow_unregistered_users.html)
-- [Flash software images](https://docs.qualcomm.com/doc/80-70030-254/topic/flash_images.html)
+Setup the HOST build environment
 
-- [qcom-manifest](https://github.com/qualcomm-linux/qcom-manifest.git)/README.md - Another source to build Qualcomm Linux (QLI)
+- Refer to [Set up the Ubuntu host computer](https://docs.qualcomm.com/doc/80-70030-254/topic/github_workflow_unregistered_users.html#set-up-the-ubuntu-host-computer)
 
 Initialize project
 
@@ -31,8 +32,9 @@ Force EDL mode
         SUBSYSTEMS=="usb", ATTRS{idVendor}=="05c6", ATTRS{idProduct}=="9008", MODE="0664", GROUP="plugdev"
 
 2. For IQ9075 EVK, turn ON the Switch SW2 (labeled "Mode") pin3
-3. Power on
-4. Check `lsusb` have `05c6:9008 Qualcomm, Inc. Gobi Wireless Modem (QDL mode)`
+3. Plug USB0 (ADB)
+4. Power on
+6. Check `lsusb` have `05c6:9008 Qualcomm, Inc. Gobi Wireless Modem (QDL mode)`
 
 Disable ModemManager: `systemctl stop ModemManager`
 
