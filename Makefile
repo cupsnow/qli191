@@ -12,6 +12,7 @@ APP_ATTR+=$(APP_ATTR_$(APP_PLATFORM))
 
 HOSTLSB_VER=$(strip $(shell lsb_release -rs))
 APPARMOR_RESTRICT_USERNS=$(strip $(shell cat /proc/sys/kernel/apparmor_restrict_unprivileged_userns))
+LSUSB_QDL=$(strip $(lsusb -d 05c6:9008 >/dev/null 2>&1 && echo YES))
 
 CLIARGS_VAL=$(if $(filter x"command line",x"$(strip $(origin $(1)))"),$($(1)))
 CLIARGS_VERBOSE=$(or $(call CLIARGS_VAL,V),$(call CLIARGS_VAL,VERBOSE))
@@ -90,8 +91,9 @@ qli_BITBAKE=$(YOENV) && chrt -i 0 bitbake
 
 ifeq (1,1)
 # build qdl from source
-QDL=$(PROJDIR)/tool/bin/qdl
-QDL_PREREQ=$(PROJDIR)/tool/bin/qdl
+QDL_BIN=$(PROJDIR)/tool/bin/qdl
+QDL=$(QDL_BIN)
+QDL_PREREQ+=$(PROJDIR)/tool/bin/qdl
 $(PROJDIR)/tool/bin/qdl: qdl_install
 else
 # qdl download from qualcomm site
@@ -129,7 +131,7 @@ CMD_UFSPROVISION= \
         $(or $(1),$(PROJDIR)/package/qcs9100-provision/)prog_firehose_ddr.elf \
         $(or $(1),$(PROJDIR)/package/qcs9100-provision/)provision_1_2.xml
 
-ufs_provision:
+ufs_provision: USBQDL_CHECK | $(QDL_BIN)
 	$(call CMD_UFSPROVISION)
 
 CMD_FLASHSAIL= \
@@ -139,7 +141,7 @@ CMD_FLASHSAIL= \
         rawprogram0.xml \
         patch0.xml
 
-flash_sail: | $(QDL_PREREQ)
+flash_sail: USBQDL_CHECK | $(QDL_BIN)
 	$(call CMD_FLASHSAIL)
 
 CMD_FLASHCDT= \
@@ -149,7 +151,7 @@ CMD_FLASHCDT= \
         rawprogram3.xml \
         patch3.xml
 
-flash_cdt: | $(QDL_PREREQ)
+flash_cdt: USBQDL_CHECK | $(QDL_BIN)
 	$(call CMD_FLASHCDT)
 
 CMD_FLASH_QLI= \
@@ -166,7 +168,7 @@ CMD_FLASH_QLI= \
         rawprogram*.xml \
         patch*.xml
 
-flash_qli: | $(QDL_PREREQ)
+flash_qli: USBQDL_CHECK | $(QDL_BIN)
 	$(call CMD_FLASH_QLI)
 
 onig: USERNS_CHECK | .layers
@@ -205,6 +207,13 @@ USERNS_CHECK: FORCE
 	@if [ ! "$(APPARMOR_RESTRICT_USERNS)" = "0" ]; then \
 	  echo "Incase of the error \"User namespaces are not usable by BitBake\""; \
 	  echo "Please execute: echo 0 | sudo tee /proc/sys/kernel/apparmor_restrict_unprivileged_userns"; \
+	  false; \
+	fi
+
+USBQDL_CHECK: FORCE
+	@if [ -z "$(LSUSB_QDL)" ]; then \
+	  echo "No QDL device (05c6:9008)."; \
+	  echo "For IQ-9075 EVK; power off, turn on SW2 (Mode) pin3, connect USB0 (ADB), power on"; \
 	  false; \
 	fi
 
