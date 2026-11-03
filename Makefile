@@ -12,7 +12,7 @@ APP_ATTR+=$(APP_ATTR_$(APP_PLATFORM))
 
 HOSTLSB_VER=$(strip $(shell lsb_release -rs))
 APPARMOR_RESTRICT_USERNS=$(strip $(shell cat /proc/sys/kernel/apparmor_restrict_unprivileged_userns))
-LSUSB_QDL=$(strip $(lsusb -d 05c6:9008 >/dev/null 2>&1 && echo YES))
+LSUSB_QDL=$(strip $(shell lsusb -d 05c6:9008 >/dev/null 2>&1 && echo YES))
 
 CLIARGS_VAL=$(if $(filter x"command line",x"$(strip $(origin $(1)))"),$($(1)))
 CLIARGS_VERBOSE=$(or $(call CLIARGS_VAL,V),$(call CLIARGS_VAL,VERBOSE))
@@ -80,29 +80,20 @@ qli_MACHINE?=$(qli_MACHINE_$(APP_PLATFORM))
 qli_BUILDDIR_rel?=build_yocto_$(APP_PLATFORM)
 qli_BUILDDIR=$(qli_BUILDDIR_rel)
 
-# setup-environment also use BUILDDIR variable
-YOENV=MACHINE=$(qli_MACHINE) DISTRO=qcom-wayland BUILDDIR= . ./setup-environment $(qli_BUILDDIR_rel)
+qli_DL_DIR?=/home/joelai/02_dev2/yocto-dl
 
-# incase of the error:
-#   ERROR: User namespaces are not usable by BitBake, possibly due to AppArmor.
-#   See https://discourse.ubuntu.com/t/ubuntu-24-04-lts-noble-numbat-release-notes/39890#unprivileged-user-namespace-restrictions for more information.
-# echo 0 | sudo tee /proc/sys/kernel/apparmor_restrict_unprivileged_userns
-qli_BITBAKE=$(YOENV) && chrt -i 0 bitbake
+qli_EXTRALAYERS+=meta-joedk
 
-ifeq (1,1)
-# build qdl from source
-QDL_BIN=$(PROJDIR)/tool/bin/qdl
-QDL=$(QDL_BIN)
-QDL_PREREQ+=$(PROJDIR)/tool/bin/qdl
-$(PROJDIR)/tool/bin/qdl: qdl_install
-else
-# qdl download from qualcomm site
-# required for qdl, TODO: build these libraries
-# ln -sfn /usr/lib/x86_64-linux-gnu/libxml2.so.16 tool/lib/libxml2.so.2
-# ln -sfn /usr/lib/x86_64-linux-gnu/libzip.so.5 tool/lib/libzip.so.4
-QDL_DIR=$(PROJDIR)/tool/qualcomm-device-loader_2.8_linux_x64
-QDL=LD_LIBRARY_PATH=$(PROJDIR)/tool/lib $(QDL_DIR)/qdl
-endif
+qli_YOENV=$(qli_EXTRALAYERS:%=EXTRALAYERS="%") \
+    MACHINE=$(qli_MACHINE) DISTRO=qcom-wayland BUILDDIR= \
+    DL_DIR=$(qli_DL_DIR) \
+    . ./setenv.sh $(qli_BUILDDIR_rel)
+
+qli_BITBAKE=$(qli_YOENV) && chrt -i 0 bitbake
+
+QDL=$(PROJDIR)/tool/bin/qdl
+QDL_PREREQ+=$(QDL)
+$(QDL): qdl_install
 
 .repo: BRANCH_NAME?=qcom-linux-scarthgap
 .repo: RELEASE_MANIFEST?=qcom-6.6.142-QLI.1.9.1-Ver.1.1_qim-product-sdk-2.5.1.xml
@@ -111,19 +102,35 @@ endif
 # make MANIFEST_URL=file://$(realpath ../qcom-manifest) .repo
 	repo init -u $(MANIFEST_URL) -b $(BRANCH_NAME) -m $(RELEASE_MANIFEST)
 
-.layers: | .repo
+layers: | .repo
 	repo sync
 
-qli_fetch: USERNS_CHECK
-	$(qli_BITBAKE) --runall=fetch qcom-multimedia-image
+qli_env: USERNS_CHECK
+	$(qli_YOENV)
 
-qli: USERNS_CHECK | .layers
+qli_fetch: USERNS_CHECK
+	$(qli_BITBAKE) --runall=fetch dummy_target_qcom-multimedia-image
+
+define qli_flash_hint
+To programming IQ-9075-EVK
+  1. Enter EDL mode by one of the following methods:
+     - Run: adb shell reboot edl
+     - Turn ON Switch SW1 (EDL) pin3
+  2. Check lsusb shows a line likely "05c6:9008 Qualcomm, Inc. Gobi Wireless Modem (QDL mode)"
+  3. Run: make flash_qli
+endef
+
+.PHONY: qli_flash_hint
+qli_flash_hint:
+# if empty recipe, make will show "Nothing to be done for xxx"
+	@:
+	$(info $(qli_flash_hint))
+
+qli: USERNS_CHECK | layers
 	$(qli_BITBAKE) qcom-multimedia-image
 	ls -ld $(qli_BUILDDIR)/tmp-glibc/deploy/images/$(qli_MACHINE)/qcom-multimedia-image
 	ls -ld $(qli_BUILDDIR)/tmp-glibc/deploy/images/$(qli_MACHINE)/sail_nor
-	@echo 'To programming IQ-9075-EVK'
-	@echo '  1. Turn ON Switch SW2 (Mode) pin3'
-	@echo '  2. Check lsusb shows "05c6:9008 Qualcomm, Inc. Gobi Wireless Modem (QDL mode)"'
+	@$(MAKE) --no-print-directory qli_flash_hint
 
 CMD_UFSPROVISION= \
   cd $(or $(1),$(PROJDIR)/package/qcs9100-provision/) \
@@ -131,7 +138,7 @@ CMD_UFSPROVISION= \
         $(or $(1),$(PROJDIR)/package/qcs9100-provision/)prog_firehose_ddr.elf \
         $(or $(1),$(PROJDIR)/package/qcs9100-provision/)provision_1_2.xml
 
-ufs_provision: USBQDL_CHECK | $(QDL_BIN)
+ufs_provision: USBQDL_CHECK | $(QDL_PREREQ)
 	$(call CMD_UFSPROVISION)
 
 CMD_FLASHSAIL= \
@@ -141,7 +148,7 @@ CMD_FLASHSAIL= \
         rawprogram0.xml \
         patch0.xml
 
-flash_sail: USBQDL_CHECK | $(QDL_BIN)
+flash_sail: USBQDL_CHECK | $(QDL_PREREQ)
 	$(call CMD_FLASHSAIL)
 
 CMD_FLASHCDT= \
@@ -151,7 +158,7 @@ CMD_FLASHCDT= \
         rawprogram3.xml \
         patch3.xml
 
-flash_cdt: USBQDL_CHECK | $(QDL_BIN)
+flash_cdt: USBQDL_CHECK | $(QDL_PREREQ)
 	$(call CMD_FLASHCDT)
 
 CMD_FLASH_QLI= \
@@ -168,13 +175,13 @@ CMD_FLASH_QLI= \
         rawprogram*.xml \
         patch*.xml
 
-flash_qli: USBQDL_CHECK | $(QDL_BIN)
+flash_qli: USBQDL_CHECK | $(QDL_PREREQ)
 	$(call CMD_FLASH_QLI)
 
-onig: USERNS_CHECK | .layers
+onig: USERNS_CHECK | layers
 	$(qli_BITBAKE) onig-native
 
-qli_%: USERNS_CHECK | .layers
+qli_%: USERNS_CHECK | layers
 	$(qli_BITBAKE) $*
 
 dkqqdiff1:
@@ -203,9 +210,11 @@ print_%:
 $(sort $(GENDIR)):
 	@mkdir -p $(MKDIR_VERBOSE) $@
 
+# ERROR: User namespaces are not usable by BitBake, possibly due to AppArmor.
+# See https://discourse.ubuntu.com/t/ubuntu-24-04-lts-noble-numbat-release-notes/39890#unprivileged-user-namespace-restrictions for more information.
 USERNS_CHECK: FORCE
 	@if [ ! "$(APPARMOR_RESTRICT_USERNS)" = "0" ]; then \
-	  echo "Incase of the error \"User namespaces are not usable by BitBake\""; \
+	  echo "In case of the error \"User namespaces are not usable by BitBake ...\""; \
 	  echo "Please execute: echo 0 | sudo tee /proc/sys/kernel/apparmor_restrict_unprivileged_userns"; \
 	  false; \
 	fi

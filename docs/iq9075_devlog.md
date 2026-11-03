@@ -21,8 +21,19 @@ Build project
 
     make qli
 
+Downloads: `setenv.sh` wraps `setup-environment` and applies env `DL_DIR`
+(Makefile default `qli_DL_DIR=/home/joelai/02_dev2/yocto-dl`) to `site.conf`.
+
+    MACHINE=qcs9075-iq-9075-evk DISTRO=qcom-wayland \
+      DL_DIR=/home/joelai/02_dev2/yocto-dl BUILDDIR= \
+      . ./setenv.sh build_yocto_iq9075evk
+
 Flash
 ----
+
+Command to EDL mode
+
+    adb shell reboot edl
 
 Force EDL mode
 
